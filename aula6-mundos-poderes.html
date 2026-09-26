@@ -145,16 +145,36 @@ let flash = 0;                  // segundos restantes do flash branco
 /* ---- PODERES ---- */
 const DASH_CD = 3, DASH_DUR = .22, DASH_VEL = 620;
 const FOGO_CD = 4, FOGO_DUR = .35, FOGO_ALCANCE = 130;
+const ESCUDO_CD = 8, ESCUDO_DUR = 5;
+const PODERES = [
+  { id: 'dash', nome: 'DASH', emoji: '💨', cor: '#4fc3f7' },
+  { id: 'fogo', nome: 'FOGO', emoji: '🔥', cor: '#ff8a2e' },
+  { id: 'escudo', nome: 'ESCUDO', emoji: '🛡️', cor: '#3ddc73' }
+];
+let poderAtivo = 0;
 let dash = { cd: 0, t: 0, dir: 1 };
 let fogo = { cd: 0, t: 0, aviso: 0 };
+let escudo = { cd: 0, t: 0, ativo: false };
+
+function trocarPoder() {
+  if (estado !== 'jogando') return;
+  poderAtivo = (poderAtivo + 1) % PODERES.length;
+}
+function usarPoder() {
+  if (estado !== 'jogando') return;
+  const id = PODERES[poderAtivo].id;
+  if (id === 'dash') ativarDash();
+  else if (id === 'fogo') ativarFogo();
+  else ativarEscudo();
+}
 
 function ativarDash() {
-  if (estado !== 'jogando' || dash.cd > 0) return;
+  if (dash.cd > 0) return;
   dash.t = DASH_DUR; dash.cd = DASH_CD; dash.dir = jog.dir || 1;
   burst(jog.x, PY, '#bfe8ff', 10, 160);
 }
 function ativarFogo() {
-  if (estado !== 'jogando' || fogo.cd > 0) return;
+  if (fogo.cd > 0) return;
   fogo.t = FOGO_DUR; fogo.cd = FOGO_CD;
   const tp = MUNDOS[mundoAtual].obstaculo;
   if (tp === 'galho' || tp === 'cristal') {
@@ -167,12 +187,17 @@ function ativarFogo() {
     fogo.aviso = 1.2;
   }
 }
+function ativarEscudo() {
+  if (escudo.cd > 0 || escudo.ativo) return;
+  escudo.ativo = true; escudo.t = ESCUDO_DUR; escudo.cd = ESCUDO_CD;
+  burst(jog.x, PY, '#8dffb0', 12, 100);
+}
 
 function resetar() {
   estado = 'jogando'; t = 0; dist = 0; vidas = 3; invenc = 0; cristais = 0; shake = 0;
   jog.x = W / 2; jog.vx = 0; obst = []; gems = []; fx = []; spawnT = 1; gemT = 1;
   mundoAtual = MUNDO_INICIAL; amb = []; transicao = null; flash = 0;
-  dash = { cd: 0, t: 0, dir: 1 }; fogo = { cd: 0, t: 0, aviso: 0 };
+  dash = { cd: 0, t: 0, dir: 1 }; fogo = { cd: 0, t: 0, aviso: 0 }; escudo = { cd: 0, t: 0, ativo: false }; poderAtivo = 0;
 }
 
 /* ---------- obstáculos ---------- */
@@ -264,8 +289,8 @@ addEventListener('keydown', e => {
   if (estado !== 'jogando') { if (k === 'Space' || k === 'Enter' || k === 'KeyR') resetar(); return; }
   if (k === 'ArrowLeft' || k === 'KeyA') keys.left = true;
   if (k === 'ArrowRight' || k === 'KeyD') keys.right = true;
-  if (k === 'Space') ativarDash();
-  if (k === 'KeyF') ativarFogo();
+  if (k === 'Space') usarPoder();
+  if (k === 'KeyQ') trocarPoder();
 });
 addEventListener('keyup', e => {
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
@@ -284,6 +309,8 @@ function update(dt) {
   if (dash.cd > 0) dash.cd -= dt;
   if (fogo.cd > 0) fogo.cd -= dt;
   if (fogo.aviso > 0) fogo.aviso -= dt;
+  if (escudo.cd > 0) escudo.cd -= dt;
+  if (escudo.ativo) { escudo.t -= dt; if (escudo.t <= 0) escudo.ativo = false; }
 
   // ---- movimento do Fagulha ----
   const ax = (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
@@ -337,6 +364,11 @@ function update(dt) {
     const ox = o.x - o.w * .42, oy = o.y - o.h * .42, ow = o.w * .84, oh = o.h * .84;
     if (hb.x < ox + ow && hb.x + hb.w > ox && hb.y < oy + oh && hb.y + hb.h > oy) {
       if (imune || invenc > 0) continue;
+      if (escudo.ativo) {
+        escudo.ativo = false; escudo.t = 0; o.morto = true;
+        burst(jog.x, PY, '#8dffb0', 16, 150);
+        break;
+      }
       levarDano(o);
       break;
     }
@@ -418,7 +450,15 @@ function desenhar() {
   if (estado !== 'gameover') {
     drawFagulha(c, jog.x, PY + 12, .42, t, {
       vx: clamp(jog.vx / 300, -1, 1), hit: invenc > 1.2,
-      alpha: piscando ? .3 : 1 });
+      alpha: piscando ? .3 : 1, glow: PODERES[poderAtivo].cor });
+    if (escudo.ativo) {
+      c.save();
+      const pb = escudo.t / ESCUDO_DUR, raio = 42 + Math.sin(t * 6) * 2;
+      c.globalAlpha = clamp(.35 + pb * .3, .2, .7);
+      c.fillStyle = '#3ddc73'; c.beginPath(); c.arc(jog.x, PY + 4, raio, 0, 7); c.fill();
+      c.globalAlpha = 1; c.strokeStyle = '#bdffcf'; c.lineWidth = 2.4; c.beginPath(); c.arc(jog.x, PY + 4, raio, 0, 7); c.stroke();
+      c.restore();
+    }
   }
   for (const p of fx) { c.globalAlpha = clamp(p.life / p.max, 0, 1); c.fillStyle = p.cor; c.beginPath(); c.arc(p.x, p.y, p.r, 0, 7); c.fill(); }
   c.globalAlpha = 1;
@@ -444,17 +484,19 @@ function hud() {
   c.fillStyle = 'rgba(0,0,0,.45)'; c.fillRect(W - 14, 44, 6, 140);
   c.fillStyle = '#7CFF9E'; c.fillRect(W - 14, 44, 6, 140 * pr);
   texto(Math.floor(dist / 10) + ' m', W - 11, 196, 8, '#fff', 'right');
-  desenharIconePoder(W / 2 - 32, H - 32, '💨', dash.cd / DASH_CD);
-  desenharIconePoder(W / 2 + 32, H - 32, '🔥', fogo.cd / FOGO_CD);
+  const cdPoder = [dash.cd / DASH_CD, fogo.cd / FOGO_CD, escudo.cd / ESCUDO_CD];
+  for (let i = 0; i < PODERES.length; i++) {
+    desenharIconePoder(W / 2 + (i - 1) * 46, H - 32, PODERES[i], cdPoder[i], i === poderAtivo);
+  }
 }
 
-function desenharIconePoder(x, y, emoji, cdFracao) {
-  const r = 20;
+function desenharIconePoder(x, y, poder, cdFracao, ativo) {
+  const r = ativo ? 22 : 18;
   c.save();
   c.fillStyle = 'rgba(0,0,0,.5)'; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
-  c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 2; c.stroke();
-  c.font = '20px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.globalAlpha = cdFracao > 0 ? .35 : 1; c.fillText(emoji, x, y + 1); c.globalAlpha = 1;
+  c.strokeStyle = ativo ? poder.cor : 'rgba(255,255,255,.4)'; c.lineWidth = ativo ? 3.4 : 2; c.stroke();
+  c.font = (ativo ? 22 : 18) + 'px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.globalAlpha = cdFracao > 0 ? .35 : 1; c.fillText(poder.emoji, x, y + 1); c.globalAlpha = 1;
   if (cdFracao > 0) {
     c.fillStyle = 'rgba(0,0,0,.55)'; c.beginPath(); c.moveTo(x, y);
     c.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + cdFracao * 6.283); c.closePath(); c.fill();
